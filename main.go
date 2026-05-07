@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -41,17 +42,16 @@ func main() {
 		return
 	}
 
-	switch args[1] {
-	case "list":
+	cmd := args[1]
+	switch {
+	case cmd == "list":
 		handleList(tasks, args)
-	case "add":
+	case cmd == "add":
 		handleAdd(tasks, args)
-	case "update":
+	case cmd == "update":
 		handleUpdate(tasks, args)
-	case "mark-in-progress":
-		handleMark(tasks, args, StatusInProgress)
-	case "mark-done":
-		handleMark(tasks, args, StatusDone)
+	case strings.Contains(cmd, "mark"):
+		handleMark(tasks, args)
 	default:
 		fmt.Println("Unknown command")
 	}
@@ -188,9 +188,18 @@ func handleUpdate(tasks []Task, args []string) {
 	fmt.Printf("Task %d update: %s\n", taskId, taskDescription)
 }
 
-func handleMark(tasks []Task, args []string, status Status) {
-	if len(args) < 3 {
-		fmt.Println("Usage: task-cli mark-in-progress <task id>")
+func handleMark(tasks []Task, args []string) {
+	// Map status strings to Status enum values
+	statusMap := map[string]Status{
+		string(StatusPending):    StatusPending,
+		string(StatusInProgress): StatusInProgress,
+		string(StatusDone):       StatusDone,
+	}
+
+	// Check if the status is valid
+	status, ok := statusMap[strings.Replace(args[1], "mark-", "", 1)]
+	if !ok || len(args) < 3 {
+		fmt.Println("Usage: task-cli list <todo|in-progress|done> <task id>")
 		return
 	}
 
@@ -203,6 +212,7 @@ func handleMark(tasks []Task, args []string, status Status) {
 	for i := range tasks {
 		if tasks[i].Id == taskId {
 			tasks[i].Status = status
+			tasks[i].UpdatedAt = time.Now()
 			break
 		}
 	}
@@ -212,5 +222,5 @@ func handleMark(tasks []Task, args []string, status Status) {
 		return
 	}
 
-	fmt.Printf("Task %d marked in progress\n", taskId)
+	fmt.Printf("Task %d marked %s \n", taskId, status)
 }
