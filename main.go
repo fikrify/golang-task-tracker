@@ -43,7 +43,7 @@ func main() {
 
 	switch args[1] {
 	case "list":
-		handleList(tasks)
+		handleList(tasks, args)
 	case "add":
 		handleAdd(tasks, args)
 	case "update":
@@ -87,13 +87,48 @@ func saveTasks(tasks []Task) error {
 	return os.WriteFile(fileName, data, 0644)
 }
 
-func handleList(tasks []Task) {
+func handleList(tasks []Task, args []string) {
 	if len(tasks) == 0 {
 		fmt.Println("No tasks found")
 		return
 	}
 
+	// Show all tasks if no status is specified
+	if len(args) < 3 {
+		for _, t := range tasks {
+			fmt.Printf("[%d] %s (%s)\n", t.Id, t.Description, t.Status)
+		}
+		return
+	}
+
+	// Map status strings to Status enum values
+	statusMap := map[string]Status{
+		string(StatusPending):    StatusPending,
+		string(StatusInProgress): StatusInProgress,
+		string(StatusDone):       StatusDone,
+	}
+
+	// Check if the status is valid
+	status, ok := statusMap[args[2]]
+	if !ok {
+		fmt.Println("Usage: task-cli list <todo|in-progress|done>")
+		return
+	}
+
+	// Show tasks with the specified status
+	var filtered []Task
 	for _, t := range tasks {
+		if t.Status == status {
+			filtered = append(filtered, t)
+		}
+	}
+
+	if len(filtered) == 0 {
+		fmt.Println("No tasks found")
+		return
+	}
+
+	for _, t := range filtered {
 		fmt.Printf("[%d] %s (%s)\n", t.Id, t.Description, t.Status)
 	}
 }
