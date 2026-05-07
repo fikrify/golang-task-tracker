@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strconv"
@@ -13,68 +14,74 @@ func main() {
 	log.SetFlags(0)
 
 	if len(os.Args) < 2 {
-		log.Println("Usage: task-cli <command> [arguments]")
-		return
+		log.Fatal("Usage: task-cli <command> [arguments]")
 	}
 
 	tasks, err := loadTasks()
 	if err != nil {
-		log.Println("Error:", err)
-		return
+		log.Fatal("error:", err)
 	}
 
 	cmd, args := os.Args[1], os.Args
+	var runErr error
 	switch cmd {
 	case "list":
-		handleList(tasks, args)
+		runErr = handleList(os.Stdout, tasks, args)
 	case "add":
-		handleAdd(tasks, args)
+		runErr = handleAdd(os.Stdout, tasks, args)
 	case "update":
-		handleUpdate(tasks, args)
+		runErr = handleUpdate(os.Stdout, tasks, args)
 	default:
 		if strings.HasPrefix(cmd, "mark-") {
-			handleMark(tasks, args)
+			runErr = handleMark(os.Stdout, tasks, args)
 		} else {
-			log.Println("Unknown command:", cmd)
+			log.Fatal("unknown command:", cmd)
 		}
+	}
+	if runErr != nil {
+		log.Fatal(runErr)
 	}
 }
 
-func handleList(tasks []Task, args []string) {
+func handleList(w io.Writer, tasks []Task, args []string) error {
 	if len(tasks) == 0 {
-		fmt.Println("No tasks found")
-		return
+		_, err := fmt.Fprintln(w, "No tasks found")
+		return err
 	}
 
 	if len(args) < 3 {
 		for _, t := range tasks {
-			printTask(t)
+			if err := printTask(w, t); err != nil {
+				return err
+			}
 		}
-		return
+		return nil
 	}
 
 	status, ok := parseStatus(args[2])
 	if !ok {
-		log.Println("Usage: task-cli list <todo|in-progress|done>")
-		return
+		return fmt.Errorf("usage: task-cli list <todo|in-progress|done>")
 	}
 
 	found := false
 	for _, t := range tasks {
 		if t.Status == status {
-			printTask(t)
+			if err := printTask(w, t); err != nil {
+				return err
+			}
 			found = true
 		}
 	}
 	if !found {
-		fmt.Println("No tasks found")
+		_, err := fmt.Fprintln(w, "No tasks found")
+		return err
 	}
+	return nil
 }
 
-func handleAdd(tasks []Task, args []string) {
+func handleAdd(w io.Writer, tasks []Task, args []string) error {
 	if len(args) < 3 {
-		log.Println("Usage: task-cli add \"task name\"")
-		return
+		return fmt.Errorf("usage: task-cli add \"task name\"")
 	}
 
 	now := time.Now()
@@ -89,74 +96,67 @@ func handleAdd(tasks []Task, args []string) {
 	tasks = append(tasks, task)
 
 	if err := saveTasks(tasks); err != nil {
-		log.Println("Error saving:", err)
-		return
+		return fmt.Errorf("saving: %w", err)
 	}
 
-	fmt.Println("Task added:", task.Description)
+	_, err := fmt.Fprintln(w, "Task added:", task.Description)
+	return err
 }
 
-func handleUpdate(tasks []Task, args []string) {
+func handleUpdate(w io.Writer, tasks []Task, args []string) error {
 	if len(args) < 4 {
-		log.Println("Usage: task-cli update <task id> \"task name\"")
-		return
+		return fmt.Errorf("usage: task-cli update <task id> \"task name\"")
 	}
 
 	taskID, err := strconv.Atoi(args[2])
 	if err != nil {
-		log.Println("Invalid task id")
-		return
+		return fmt.Errorf("invalid task id")
 	}
 
 	idx := findTaskIndex(tasks, taskID)
 	if idx == -1 {
-		log.Printf("Task %d not found", taskID)
-		return
+		return fmt.Errorf("task %d not found", taskID)
 	}
 
 	tasks[idx].Description = args[3]
 	tasks[idx].UpdatedAt = time.Now()
 
 	if err := saveTasks(tasks); err != nil {
-		log.Println("Error saving:", err)
-		return
+		return fmt.Errorf("saving: %w", err)
 	}
 
-	fmt.Printf("Task %d updated: %s\n", taskID, tasks[idx].Description)
+	_, err = fmt.Fprintln(w, fmt.Sprintf("Task %d updated: %s", taskID, tasks[idx].Description))
+	return err
 }
 
-func handleMark(tasks []Task, args []string) {
+func handleMark(w io.Writer, tasks []Task, args []string) error {
 	if len(args) < 3 {
-		log.Println("Usage: task-cli mark-<todo|in-progress|done> <task id>")
-		return
+		return fmt.Errorf("usage: task-cli mark-<todo|in-progress|done> <task id>")
 	}
 
 	statusStr, _ := strings.CutPrefix(args[1], "mark-")
 	status, ok := parseStatus(statusStr)
 	if !ok {
-		log.Println("Usage: task-cli mark-<todo|in-progress|done> <task id>")
-		return
+		return fmt.Errorf("usage: task-cli mark-<todo|in-progress|done> <task id>")
 	}
 
 	taskID, err := strconv.Atoi(args[2])
 	if err != nil {
-		log.Println("Invalid task id")
-		return
+		return fmt.Errorf("invalid task id")
 	}
 
 	idx := findTaskIndex(tasks, taskID)
 	if idx == -1 {
-		log.Printf("Task %d not found", taskID)
-		return
+		return fmt.Errorf("task %d not found", taskID)
 	}
 
 	tasks[idx].Status = status
 	tasks[idx].UpdatedAt = time.Now()
 
 	if err := saveTasks(tasks); err != nil {
-		log.Println("Error saving:", err)
-		return
+		return fmt.Errorf("saving: %w", err)
 	}
 
-	fmt.Printf("Task %d marked %s\n", taskID, status)
+	_, err = fmt.Fprintln(w, fmt.Sprintf("Task %d marked %s", taskID, status))
+	return err
 }

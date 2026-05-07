@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 )
@@ -25,12 +26,6 @@ type Task struct {
 }
 
 const fileName = "tasks.json"
-
-var validStatuses = map[string]Status{
-	string(StatusPending):    StatusPending,
-	string(StatusInProgress): StatusInProgress,
-	string(StatusDone):       StatusDone,
-}
 
 func loadTasks() ([]Task, error) {
 	data, err := os.ReadFile(fileName)
@@ -64,8 +59,11 @@ func saveTasks(tasks []Task) error {
 }
 
 func parseStatus(s string) (Status, bool) {
-	status, ok := validStatuses[s]
-	return status, ok
+	switch Status(s) {
+	case StatusPending, StatusInProgress, StatusDone:
+		return Status(s), true
+	}
+	return "", false
 }
 
 func findTaskIndex(tasks []Task, id int) int {
@@ -77,6 +75,7 @@ func findTaskIndex(tasks []Task, id int) int {
 	return -1
 }
 
-func printTask(t Task) {
-	fmt.Printf("[%d] %s (%s)\n", t.ID, t.Description, t.Status)
+func printTask(w io.Writer, t Task) error {
+	_, err := fmt.Fprintln(w, fmt.Sprintf("[%d] %s (%s)", t.ID, t.Description, t.Status))
+	return err
 }
