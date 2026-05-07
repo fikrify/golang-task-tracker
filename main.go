@@ -1,90 +1,43 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 )
 
-type Status string
-
-const (
-	StatusPending    Status = "todo"
-	StatusInProgress Status = "in-progress"
-	StatusDone       Status = "done"
-)
-
-type Task struct {
-	Id          int       `json:"id"`
-	Description string    `json:"description"`
-	Status      Status    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
-const fileName = "tasks.json"
-
 func main() {
-	args := os.Args
+	log.SetFlags(0)
 
-	if len(args) < 2 {
-		fmt.Println("Usage: task-cli <command> [arguments]")
+	if len(os.Args) < 2 {
+		log.Println("Usage: task-cli <command> [arguments]")
 		return
 	}
 
 	tasks, err := loadTasks()
 	if err != nil {
-		fmt.Println("Error:", err)
+		log.Println("Error:", err)
 		return
 	}
 
-	cmd := args[1]
-	switch {
-	case cmd == "list":
+	cmd, args := os.Args[1], os.Args
+	switch cmd {
+	case "list":
 		handleList(tasks, args)
-	case cmd == "add":
+	case "add":
 		handleAdd(tasks, args)
-	case cmd == "update":
+	case "update":
 		handleUpdate(tasks, args)
-	case strings.Contains(cmd, "mark"):
-		handleMark(tasks, args)
 	default:
-		fmt.Println("Unknown command")
-	}
-}
-
-func loadTasks() ([]Task, error) {
-	data, err := os.ReadFile(fileName)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return []Task{}, nil
+		if strings.HasPrefix(cmd, "mark-") {
+			handleMark(tasks, args)
+		} else {
+			log.Println("Unknown command:", cmd)
 		}
-		return nil, err
 	}
-
-	if len(data) == 0 {
-		return []Task{}, nil
-	}
-
-	var tasks []Task
-	if err := json.Unmarshal(data, &tasks); err != nil {
-		return nil, err
-	}
-
-	return tasks, nil
-}
-
-func saveTasks(tasks []Task) error {
-	data, err := json.MarshalIndent(tasks, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(fileName, data, 0644)
 }
 
 func handleList(tasks []Task, args []string) {
@@ -93,66 +46,50 @@ func handleList(tasks []Task, args []string) {
 		return
 	}
 
-	// Show all tasks if no status is specified
 	if len(args) < 3 {
 		for _, t := range tasks {
-			fmt.Printf("[%d] %s (%s)\n", t.Id, t.Description, t.Status)
+			printTask(t)
 		}
 		return
 	}
 
-	// Map status strings to Status enum values
-	statusMap := map[string]Status{
-		string(StatusPending):    StatusPending,
-		string(StatusInProgress): StatusInProgress,
-		string(StatusDone):       StatusDone,
-	}
-
-	// Check if the status is valid
-	status, ok := statusMap[args[2]]
+	status, ok := parseStatus(args[2])
 	if !ok {
-		fmt.Println("Usage: task-cli list <todo|in-progress|done>")
+		log.Println("Usage: task-cli list <todo|in-progress|done>")
 		return
 	}
 
-	// Show tasks with the specified status
-	var filtered []Task
+	found := false
 	for _, t := range tasks {
 		if t.Status == status {
-			filtered = append(filtered, t)
+			printTask(t)
+			found = true
 		}
 	}
-
-	if len(filtered) == 0 {
+	if !found {
 		fmt.Println("No tasks found")
-		return
-	}
-
-	for _, t := range filtered {
-		fmt.Printf("[%d] %s (%s)\n", t.Id, t.Description, t.Status)
 	}
 }
 
 func handleAdd(tasks []Task, args []string) {
 	if len(args) < 3 {
-		fmt.Println("Usage: task-cli add \"task name\"")
+		log.Println("Usage: task-cli add \"task name\"")
 		return
 	}
 
 	now := time.Now()
-
+	// ID is len+1; assumes no deletions. Safe for append-only task lists.
 	task := Task{
-		Id:          len(tasks) + 1,
+		ID:          len(tasks) + 1,
 		Description: args[2],
 		Status:      StatusPending,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-
 	tasks = append(tasks, task)
 
 	if err := saveTasks(tasks); err != nil {
-		fmt.Println("Error saving:", err)
+		log.Println("Error saving:", err)
 		return
 	}
 
@@ -161,66 +98,65 @@ func handleAdd(tasks []Task, args []string) {
 
 func handleUpdate(tasks []Task, args []string) {
 	if len(args) < 4 {
-		fmt.Println("Usage: task-cli update <task id> \"task name\"")
+		log.Println("Usage: task-cli update <task id> \"task name\"")
 		return
 	}
 
-	taskId, err := strconv.Atoi(args[2])
+	taskID, err := strconv.Atoi(args[2])
 	if err != nil {
-		fmt.Println("Invalid task id")
+		log.Println("Invalid task id")
 		return
 	}
-	taskDescription := args[3]
 
-	for i := range tasks {
-		if tasks[i].Id == taskId {
-			tasks[i].Description = taskDescription
-			tasks[i].UpdatedAt = time.Now()
-			break
-		}
+	idx := findTaskIndex(tasks, taskID)
+	if idx == -1 {
+		log.Printf("Task %d not found", taskID)
+		return
 	}
+
+	tasks[idx].Description = args[3]
+	tasks[idx].UpdatedAt = time.Now()
 
 	if err := saveTasks(tasks); err != nil {
-		fmt.Println("Error saving:", err)
+		log.Println("Error saving:", err)
 		return
 	}
 
-	fmt.Printf("Task %d update: %s\n", taskId, taskDescription)
+	fmt.Printf("Task %d updated: %s\n", taskID, tasks[idx].Description)
 }
 
 func handleMark(tasks []Task, args []string) {
-	// Map status strings to Status enum values
-	statusMap := map[string]Status{
-		string(StatusPending):    StatusPending,
-		string(StatusInProgress): StatusInProgress,
-		string(StatusDone):       StatusDone,
-	}
-
-	// Check if the status is valid
-	status, ok := statusMap[strings.Replace(args[1], "mark-", "", 1)]
-	if !ok || len(args) < 3 {
-		fmt.Println("Usage: task-cli list <todo|in-progress|done> <task id>")
+	if len(args) < 3 {
+		log.Println("Usage: task-cli mark-<todo|in-progress|done> <task id>")
 		return
 	}
 
-	taskId, err := strconv.Atoi(args[2])
+	statusStr, _ := strings.CutPrefix(args[1], "mark-")
+	status, ok := parseStatus(statusStr)
+	if !ok {
+		log.Println("Usage: task-cli mark-<todo|in-progress|done> <task id>")
+		return
+	}
+
+	taskID, err := strconv.Atoi(args[2])
 	if err != nil {
-		fmt.Println("Invalid task id")
+		log.Println("Invalid task id")
 		return
 	}
 
-	for i := range tasks {
-		if tasks[i].Id == taskId {
-			tasks[i].Status = status
-			tasks[i].UpdatedAt = time.Now()
-			break
-		}
+	idx := findTaskIndex(tasks, taskID)
+	if idx == -1 {
+		log.Printf("Task %d not found", taskID)
+		return
 	}
+
+	tasks[idx].Status = status
+	tasks[idx].UpdatedAt = time.Now()
 
 	if err := saveTasks(tasks); err != nil {
-		fmt.Println("Error saving:", err)
+		log.Println("Error saving:", err)
 		return
 	}
 
-	fmt.Printf("Task %d marked %s \n", taskId, status)
+	fmt.Printf("Task %d marked %s\n", taskID, status)
 }
